@@ -609,7 +609,7 @@ string S3fsCurl::LookupMimeType(string name)
   }
 
   // neither the last extension nor the second-to-last extension
-  // matched a mimeType, return the default mime type 
+  // matched a mimeType, return the default mime type
   return result;
 }
 
@@ -618,7 +618,7 @@ bool S3fsCurl::LocateBundle(void)
   // See if environment variable CURL_CA_BUNDLE is set
   // if so, check it, if it is a good path, then set the
   // curl_ca_bundle variable to it
-  char *CURL_CA_BUNDLE; 
+  char *CURL_CA_BUNDLE;
 
   if(0 == S3fsCurl::curl_ca_bundle.size()){
     CURL_CA_BUNDLE = getenv("CURL_CA_BUNDLE");
@@ -630,7 +630,7 @@ bool S3fsCurl::LocateBundle(void)
         return false;
       }
       BF.close();
-      S3fsCurl::curl_ca_bundle.assign(CURL_CA_BUNDLE); 
+      S3fsCurl::curl_ca_bundle.assign(CURL_CA_BUNDLE);
       return true;
     }
   }
@@ -651,10 +651,10 @@ bool S3fsCurl::LocateBundle(void)
   // dnl /usr/local/share/certs/ca-root.crt FreeBSD
   // dnl /etc/ssl/cert.pem OpenBSD
   // dnl /etc/ssl/certs/ (ca path) SUSE
-  ifstream BF("/etc/pki/tls/certs/ca-bundle.crt"); 
+  ifstream BF("/etc/pki/tls/certs/ca-bundle.crt");
   if(BF.good()){
      BF.close();
-     S3fsCurl::curl_ca_bundle.assign("/etc/pki/tls/certs/ca-bundle.crt"); 
+     S3fsCurl::curl_ca_bundle.assign("/etc/pki/tls/certs/ca-bundle.crt");
   }else{
     S3FS_PRN_ERR("%s: /etc/pki/tls/certs/ca-bundle.crt is not readable", program_name.c_str());
     return false;
@@ -927,7 +927,7 @@ bool S3fsCurl::SetSseKmsid(const char* kmsid)
 }
 
 // [NOTE]
-// Because SSE is set by some options and environment, 
+// Because SSE is set by some options and environment,
 // this function check the integrity of the SSE data finally.
 bool S3fsCurl::FinalCheckSse(void)
 {
@@ -956,7 +956,7 @@ bool S3fsCurl::FinalCheckSse(void)
   }
   return true;
 }
-                                                                                                                                                   
+
 bool S3fsCurl::LoadEnvSseCKeys(void)
 {
   char* envkeys = getenv("OSSSSECKEYS");
@@ -1048,7 +1048,7 @@ bool S3fsCurl::checkSTSCredentialUpdate(void) {
     if (time(NULL) <= S3fsCurl::COSAccessTokenExpire) {
         return true;
     }
-   
+
    // if return value is not equal 1, means wrong format key
    if (check_for_cos_format() != 1) {
        return false;
@@ -1282,7 +1282,11 @@ S3fsCurl* S3fsCurl::ParallelGetObjectRetryCallback(S3fsCurl* s3fscurl)
 
   // duplicate request(setup new curl object)
   S3fsCurl* newcurl = new S3fsCurl(s3fscurl->IsUseAhbe());
-  if(0 != (result = newcurl->PreGetObjectRequest(s3fscurl->path.c_str(), s3fscurl->partdata.fd,
+  std::string path = s3fscurl->path;
+  if (path.size() >= mount_prefix.size() && path.substr(0, mount_prefix.size()) == mount_prefix) {
+    path = path.substr(mount_prefix.size());
+  }
+  if(0 != (result = newcurl->PreGetObjectRequest(path.c_str(), s3fscurl->partdata.fd,
      s3fscurl->partdata.startpos, s3fscurl->partdata.size, s3fscurl->b_ssetype, s3fscurl->b_ssevalue)))
   {
     S3FS_PRN_ERR("failed downloading part setup(%d)", result);
@@ -1461,7 +1465,7 @@ int S3fsCurl::CurlDebugFunc(CURL* hcurl, curl_infotype type, char* data, size_t 
 //-------------------------------------------------------------------
 // Methods for S3fsCurl
 //-------------------------------------------------------------------
-S3fsCurl::S3fsCurl(bool ahbe) : 
+S3fsCurl::S3fsCurl(bool ahbe) :
     hCurl(NULL), path(""), base_path(""), saved_path(""), url(""), requestHeaders(NULL),
     bodydata(NULL), headdata(NULL), LastResponseCode(-1), postdata(NULL), postdata_remaining(0), is_use_ahbe(ahbe),
     retry_count(0), b_infile(NULL), b_postdata(NULL), b_postdata_remaining(0), b_partdata_startpos(0), b_partdata_size(0),
@@ -1704,7 +1708,7 @@ bool S3fsCurl::RemakeHandle(void)
 
     case REQTYPE_CHKBUCKET:
       curl_easy_setopt(hCurl, CURLOPT_URL, url.c_str());
-	  // XXX 
+	  // XXX
       //curl_easy_setopt(hCurl, CURLOPT_FAILONERROR, true);
       curl_easy_setopt(hCurl, CURLOPT_WRITEDATA, (void*)bodydata);
       curl_easy_setopt(hCurl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
@@ -1793,6 +1797,7 @@ bool S3fsCurl::RemakeHandle(void)
 //
 int S3fsCurl::RequestPerform(void)
 {
+  static const int max_retry_time_in_s = 10;
   // Add the user-agent info
   requestHeaders = curl_slist_sort_insert(requestHeaders, "User-Agent", skUserAgent.c_str());
   if(IS_S3FS_LOG_DBG()){
@@ -1805,9 +1810,15 @@ int S3fsCurl::RequestPerform(void)
   for(int retrycnt = S3fsCurl::retries; 0 < retrycnt; retrycnt--){
     // Requests
 	// XXX
-	//curl_easy_setopt(hCurl, CURLOPT_HEADERDATA, (void*)&responseHeaders); 
-	//curl_easy_setopt(hCurl, CURLOPT_HEADERFUNCTION, HeaderCallback); 
+	//curl_easy_setopt(hCurl, CURLOPT_HEADERDATA, (void*)&responseHeaders);
+	//curl_easy_setopt(hCurl, CURLOPT_HEADERFUNCTION, HeaderCallback);
     CURLcode curlCode = curl_easy_perform(hCurl);
+
+	// exponential backoff until max_retry_time_in_s
+	int retry_sleep_time_in_s = 2 * (retries - retrycnt + 1);
+	if (retry_sleep_time_in_s > max_retry_time_in_s) {
+		retry_sleep_time_in_s = max_retry_time_in_s;
+	}
 
     // Check result
     switch(curlCode){
@@ -1823,8 +1834,8 @@ int S3fsCurl::RequestPerform(void)
         }
         if(500 <= LastResponseCode){
           S3FS_PRN_INFO3("HTTP response code %ld", LastResponseCode);
-          sleep(4);
-          break; 
+          sleep(retry_sleep_time_in_s);
+          break;
         }
 
         // Service response codes which are >= 400 && < 500
@@ -1853,53 +1864,53 @@ int S3fsCurl::RequestPerform(void)
 
       case CURLE_WRITE_ERROR:
         S3FS_PRN_ERR("### CURLE_WRITE_ERROR");
-        sleep(2);
-        break; 
+        sleep(retry_sleep_time_in_s);
+        break;
 
       case CURLE_OPERATION_TIMEDOUT:
         S3FS_PRN_ERR("### CURLE_OPERATION_TIMEDOUT");
-        sleep(2);
-        break; 
+        sleep(retry_sleep_time_in_s);
+        break;
 
       case CURLE_COULDNT_RESOLVE_HOST:
         S3FS_PRN_ERR("### CURLE_COULDNT_RESOLVE_HOST");
-        sleep(2);
-        break; 
+        sleep(retry_sleep_time_in_s);
+        break;
 
       case CURLE_COULDNT_CONNECT:
         S3FS_PRN_ERR("### CURLE_COULDNT_CONNECT");
-        sleep(4);
-        break; 
+        sleep(retry_sleep_time_in_s);
+        break;
 
       case CURLE_GOT_NOTHING:
         S3FS_PRN_ERR("### CURLE_GOT_NOTHING");
-        sleep(4);
-        break; 
+        sleep(retry_sleep_time_in_s);
+        break;
 
       case CURLE_ABORTED_BY_CALLBACK:
         S3FS_PRN_ERR("### CURLE_ABORTED_BY_CALLBACK");
-        sleep(4);
+        // sleep(retry_sleep_time_in_s);
         S3fsCurl::curl_times[hCurl] = time(0);
-        break; 
+        break;
 
       case CURLE_PARTIAL_FILE:
         S3FS_PRN_ERR("### CURLE_PARTIAL_FILE");
-        sleep(4);
-        break; 
+        sleep(retry_sleep_time_in_s);
+        break;
 
       case CURLE_SEND_ERROR:
         S3FS_PRN_ERR("### CURLE_SEND_ERROR");
-        sleep(2);
+        sleep(retry_sleep_time_in_s);
         break;
 
       case CURLE_RECV_ERROR:
         S3FS_PRN_ERR("### CURLE_RECV_ERROR");
-        sleep(2);
+        sleep(retry_sleep_time_in_s);
         break;
 
       case CURLE_SSL_CONNECT_ERROR:
         S3FS_PRN_ERR("### CURLE_SSL_CONNECT_ERROR");
-        sleep(2);
+        sleep(retry_sleep_time_in_s);
         break;
 
       case CURLE_SSL_CACERT:
@@ -1945,7 +1956,7 @@ int S3fsCurl::RequestPerform(void)
         }
         S3FS_PRN_INFO3("HTTP response code =%ld", LastResponseCode);
 
-        // Let's try to retrieve the 
+        // Let's try to retrieve the
         if(404 == LastResponseCode){
           return -ENOENT;
         }
@@ -1983,7 +1994,7 @@ int S3fsCurl::RequestPerform(void)
 string S3fsCurl::CalcSignature(string method, string strMD5, string content_type, string date, string resource)
 {
   string Signature;
- 
+
   if (0 < S3fsCurl::CAM_role.size()) {
       if (!S3fsCurl::checkSTSCredentialUpdate()) {
           S3FS_PRN_ERR("Something error occurred in checking CAM STS Credential");
@@ -2007,22 +2018,18 @@ string S3fsCurl::CalcSignature(string method, string strMD5, string content_type
   unsigned int sign_key_len = 0;
   s3fs_HMAC(key, key_len, kdata, q_key_time.size(), &sign_key_raw, &sign_key_len);
   std::string sign_key = s3fs_hex(sign_key_raw, sign_key_len);
-  S3FS_PRN_INFO(" q-key_time is %s, new sign key is : %s", q_key_time.c_str(), sign_key.c_str());
 
   string FormatString;
   FormatString += lower(method) + "\n";
   FormatString += resource + "\n\n"; // no params
   FormatString += get_canonical_headers(requestHeaders); // \n has been append
 
-  S3FS_PRN_INFO("Format string is : %s", FormatString.c_str());
- 
   const unsigned char* sdata = reinterpret_cast<const unsigned char*>(FormatString.data());
   int sdata_len              = FormatString.size();
   unsigned char* md          = NULL;
   unsigned int md_len        = 0;
 
   string format_string_sha1 = s3fs_sha1_hex(sdata, sdata_len, &md, &md_len);
-  S3FS_PRN_ERR("format string sha1 : %s", format_string_sha1.c_str());
   string StringToSign;
   StringToSign += string("sha1\n");
   StringToSign += q_key_time + "\n";
@@ -2033,7 +2040,6 @@ string S3fsCurl::CalcSignature(string method, string strMD5, string content_type
   s3fs_HMAC(sign_key.data(), sign_key.size(), reinterpret_cast<const unsigned char*>(StringToSign.data()), StringToSign.size(), &sign_data, &sign_len);
   string sign_data_hex = s3fs_hex(sign_data, sign_len);
 
-  S3FS_PRN_INFO("string to sign %s", StringToSign.c_str());
   Signature += "q-sign-algorithm=sha1&";
   Signature += string("q-ak=") + S3fsCurl::COSAccessKeyId + "&";
   Signature += string("q-sign-time=") + q_key_time + "&";
@@ -2330,7 +2336,7 @@ int S3fsCurl::PutHeadRequest(const char* tpath, headers_t& meta, bool is_copy)
   } else if(STANDARD_IA == GetStorageClass()){
     requestHeaders = curl_slist_sort_insert(requestHeaders, "x-cos-storage-class", "STANDARD_IA");
   }
- 
+
   string date    = get_date_rfc850();
   requestHeaders = curl_slist_sort_insert(requestHeaders, "Date", date.c_str());
 
@@ -2753,7 +2759,7 @@ int S3fsCurl::CompleteMultipartPostRequest(const char* tpath, string& upload_id,
     postContent += "  <PartNumber>" + str(cnt + 1) + "</PartNumber>\n";
     postContent += "  <ETag>\""     + parts[cnt]   + "\"</ETag>\n";
     postContent += "</Part>\n";
-  }  
+  }
   postContent += "</CompleteMultipartUpload>\n";
 
   // set postdata
@@ -2996,7 +3002,7 @@ int S3fsCurl::UploadMultipartPostRequest(const char* tpath, int part_num, string
   // request
   if(0 == (result = RequestPerform())){
     // check etag
-	// cos's  no check etag 
+	// cos's  no check etag
     // if(NULL != strstr(headdata->str(), upper(partdata.etag).c_str())){
       // get etag from response header
       S3FS_PRN_ERR("headdata is : %s", headdata->str());
@@ -3302,12 +3308,12 @@ int S3fsCurl::MultipartRenameRequest(const char* from, const char* to, headers_t
 }
 
 //-------------------------------------------------------------------
-// Class S3fsMultiCurl 
+// Class S3fsMultiCurl
 //-------------------------------------------------------------------
 #define MAX_MULTI_HEADREQ   20   // default: max request count in readdir curl_multi.
 
 //-------------------------------------------------------------------
-// Class method for S3fsMultiCurl 
+// Class method for S3fsMultiCurl
 //-------------------------------------------------------------------
 int S3fsMultiCurl::max_multireq = MAX_MULTI_HEADREQ;
 
@@ -3319,9 +3325,9 @@ int S3fsMultiCurl::SetMaxMultiRequest(int max)
 }
 
 //-------------------------------------------------------------------
-// method for S3fsMultiCurl 
+// method for S3fsMultiCurl
 //-------------------------------------------------------------------
-S3fsMultiCurl::S3fsMultiCurl() : hMulti(NULL), SuccessCallback(NULL), RetryCallback(NULL)
+S3fsMultiCurl::S3fsMultiCurl() : SuccessCallback(NULL), RetryCallback(NULL)
 {
 }
 
@@ -3334,20 +3340,11 @@ bool S3fsMultiCurl::ClearEx(bool is_all)
 {
   s3fscurlmap_t::iterator iter;
   for(iter = cMap_req.begin(); iter != cMap_req.end(); cMap_req.erase(iter++)){
-    CURL*     hCurl    = (*iter).first;
     S3fsCurl* s3fscurl = (*iter).second;
-    if(hMulti && hCurl){
-      curl_multi_remove_handle(hMulti, hCurl);
-    }
     if(s3fscurl){
       s3fscurl->DestroyCurlHandle();
       delete s3fscurl;  // with destroy curl handle.
     }
-  }
-
-  if(hMulti){
-    curl_multi_cleanup(hMulti);
-    hMulti = NULL;
   }
 
   if(is_all){
@@ -3368,20 +3365,16 @@ S3fsMultiSuccessCallback S3fsMultiCurl::SetSuccessCallback(S3fsMultiSuccessCallb
   SuccessCallback = function;
   return old;
 }
-  
+
 S3fsMultiRetryCallback S3fsMultiCurl::SetRetryCallback(S3fsMultiRetryCallback function)
 {
   S3fsMultiRetryCallback old = RetryCallback;
   RetryCallback = function;
   return old;
 }
-  
+
 bool S3fsMultiCurl::SetS3fsCurlObject(S3fsCurl* s3fscurl)
 {
-  if(hMulti){
-    S3FS_PRN_ERR("Internal error: hMulti is not null");
-    return false;
-  }
   if(!s3fscurl){
     return false;
   }
@@ -3394,148 +3387,102 @@ bool S3fsMultiCurl::SetS3fsCurlObject(S3fsCurl* s3fscurl)
 
 int S3fsMultiCurl::MultiPerform(void)
 {
-  CURLMcode curlm_code;
-  int       still_running;
+  std::vector<pthread_t>   threads;
+  bool                     success = true;
 
-  if(!hMulti){
-    return -1;
+  for(s3fscurlmap_t::iterator iter = cMap_req.begin(); iter != cMap_req.end(); ++iter) {
+    pthread_t   thread;
+    S3fsCurl*   s3fscurl = (*iter).second;
+    int         rc;
+
+    rc = pthread_create(&thread, NULL, S3fsMultiCurl::RequestPerformWrapper, static_cast<void*>(s3fscurl));
+    if (rc != 0) {
+      success = false;
+      S3FS_PRN_ERR("failed pthread_create - rc(%d)", rc);
+      break;
+    }
+
+    threads.push_back(thread);
   }
 
-  // Send multi request.
-  do{
-    // Start making requests and check running.
-    still_running = 0;
-    do {
-      curlm_code = curl_multi_perform(hMulti, &still_running);
-    } while(curlm_code == CURLM_CALL_MULTI_PERFORM);
+  for (std::vector<pthread_t>::iterator iter = threads.begin(); iter != threads.end(); ++iter) {
+    void*   retval;
+    int     rc;
 
-    if(curlm_code != CURLM_OK) {
-      S3FS_PRN_DBG("curl_multi_perform code: %d msg: %s", curlm_code, curl_multi_strerror(curlm_code));
-    }
-
-    // Set timer when still running
-    if(still_running) {
-      long milliseconds;
-      fd_set r_fd;
-      fd_set w_fd;
-      fd_set e_fd;
-      FD_ZERO(&r_fd);
-      FD_ZERO(&w_fd);
-      FD_ZERO(&e_fd);
-
-      if(CURLM_OK != (curlm_code = curl_multi_timeout(hMulti, &milliseconds))){
-        S3FS_PRN_DBG("curl_multi_timeout code: %d msg: %s", curlm_code, curl_multi_strerror(curlm_code));
-      }
-      if(milliseconds < 0){
-        milliseconds = 50;
-      }
-      if(milliseconds > 0) {
-        int max_fd;
-        struct timeval timeout;
-        timeout.tv_sec  = 1000 * milliseconds / 1000000;
-        timeout.tv_usec = 1000 * milliseconds % 1000000;
-
-        if(CURLM_OK != (curlm_code = curl_multi_fdset(hMulti, &r_fd, &w_fd, &e_fd, &max_fd))){
-          S3FS_PRN_ERR("curl_multi_fdset code: %d msg: %s", curlm_code, curl_multi_strerror(curlm_code));
-          return -EIO;
-        }
-        if(-1 == select(max_fd + 1, &r_fd, &w_fd, &e_fd, &timeout)){
-          S3FS_PRN_ERR("failed select - errno(%d)", errno);
-          return -errno;
-        }
+    rc = pthread_join(*iter, &retval);
+    if (rc) {
+      success = false;
+      S3FS_PRN_ERR("failed pthread_join - rc(%d)", rc);
+    } else {
+      int int_retval = (int)(intptr_t)(retval);
+      if (int_retval) {
+        S3FS_PRN_ERR("thread failed - rc(%d)", int_retval);
+        success = false;
       }
     }
-  }while(still_running);
+  }
 
-  return 0;
+  return success ? 0 : -EIO;
 }
 
 int S3fsMultiCurl::MultiRead(void)
 {
-  CURLMsg*  msg;
-  int       remaining_messages;
-  CURL*     hCurl    = NULL;
-  S3fsCurl* s3fscurl = NULL;
-  S3fsCurl* retrycurl= NULL;
+  for(s3fscurlmap_t::iterator iter = cMap_req.begin(); iter != cMap_req.end(); cMap_req.erase(iter++)) {
+    S3fsCurl* s3fscurl = (*iter).second;
 
-  while(NULL != (msg = curl_multi_info_read(hMulti, &remaining_messages))){
-    if(CURLMSG_DONE != msg->msg){
-      S3FS_PRN_ERR("curl_multi_info_read code: %d", msg->msg);
-      return -EIO;
-    }
-    hCurl    = msg->easy_handle;
-    s3fscurlmap_t::iterator iter;
-    if(cMap_req.end() != (iter = cMap_req.find(hCurl))){
-      s3fscurl = iter->second;
-    }else{
-      s3fscurl = NULL;
-    }
-    retrycurl= NULL;
+    bool isRetry = false;
 
-    if(s3fscurl){
-      bool isRetry = false;
-      if(CURLE_OK == msg->data.result){
-        long responseCode = -1;
-        if(s3fscurl->GetResponseCode(responseCode)){
-          if(400 > responseCode){
-            // add into stat cache
-            if(SuccessCallback && !SuccessCallback(s3fscurl)){
-              S3FS_PRN_WARN("error from callback function(%s).", s3fscurl->url.c_str());
-            }
-          }else if(400 == responseCode){
-            // as possibly in multipart
-            S3FS_PRN_WARN("failed a request(%ld: %s)", responseCode, s3fscurl->url.c_str());
-            isRetry = true;
-          }else if(404 == responseCode){
-            // not found
-            S3FS_PRN_WARN("failed a request(%ld: %s)", responseCode, s3fscurl->url.c_str());
-          }else if(500 == responseCode){
-            // case of all other result, do retry.(11/13/2013)
-            // because it was found that s3fs got 500 error from S3, but could success
-            // to retry it.
-            S3FS_PRN_WARN("failed a request(%ld: %s)", responseCode, s3fscurl->url.c_str());
-            isRetry = true;
-          }else{
-            // Retry in other case.
-            S3FS_PRN_WARN("failed a request(%ld: %s)", responseCode, s3fscurl->url.c_str());
-            isRetry = true;
-          }
-        }else{
-          S3FS_PRN_ERR("failed a request(Unknown respons code: %s)", s3fscurl->url.c_str());
+    long responseCode = -1;
+    if(s3fscurl->GetResponseCode(responseCode)){
+      if(400 > responseCode){
+        // add into stat cache
+        if(SuccessCallback && !SuccessCallback(s3fscurl)){
+          S3FS_PRN_WARN("error from callback function(%s).", s3fscurl->url.c_str());
         }
+      }else if(400 == responseCode){
+        // as possibly in multipart
+        S3FS_PRN_WARN("failed a request(%ld: %s)", responseCode, s3fscurl->url.c_str());
+        isRetry = true;
+      }else if(404 == responseCode){
+        // not found
+        S3FS_PRN_WARN("failed a request(%ld: %s)", responseCode, s3fscurl->url.c_str());
+      }else if(500 == responseCode){
+        // case of all other result, do retry.(11/13/2013)
+        // because it was found that s3fs got 500 error from S3, but could success
+        // to retry it.
+        S3FS_PRN_WARN("failed a request(%ld: %s)", responseCode, s3fscurl->url.c_str());
+        isRetry = true;
       }else{
-        S3FS_PRN_WARN("failed to read(remaining: %d code: %d  msg: %s), so retry this.",
-              remaining_messages, msg->data.result, curl_easy_strerror(msg->data.result));
+        // Retry in other case.
+        S3FS_PRN_WARN("failed a request(%ld: %s)", responseCode, s3fscurl->url.c_str());
         isRetry = true;
       }
+    }else{
+      S3FS_PRN_ERR("failed a request(Unknown response code: %s)", s3fscurl->url.c_str());
+    }
 
-      if(!isRetry){
-        cMap_req.erase(hCurl);
-        curl_multi_remove_handle(hMulti, hCurl);
 
-        s3fscurl->DestroyCurlHandle();
-        delete s3fscurl;
+    if(!isRetry){
+      s3fscurl->DestroyCurlHandle();
+      delete s3fscurl;
 
-      }else{
-        cMap_req.erase(hCurl);
-        curl_multi_remove_handle(hMulti, hCurl);
+    }else{
+      S3fsCurl* retrycurl = NULL;
 
-        // For retry
-        if(RetryCallback){
-          if(NULL != (retrycurl = RetryCallback(s3fscurl))){
-            cMap_all[retrycurl->hCurl] = retrycurl;
-          }else{
-            // Could not set up callback.
-            return -EIO;
-          }
-        }
-        if(s3fscurl != retrycurl){
-          s3fscurl->DestroyCurlHandle();
-          delete s3fscurl;
+      // For retry
+      if(RetryCallback){
+        retrycurl = RetryCallback(s3fscurl);
+        if(NULL != retrycurl){
+          cMap_all[retrycurl->hCurl] = retrycurl;
+        }else{
+          // Could not set up callback.
+          return -EIO;
         }
       }
-    }else{
-      assert(false);
+      if(s3fscurl != retrycurl){
+        s3fscurl->DestroyCurlHandle();
+        delete s3fscurl;
+      }
     }
   }
   return 0;
@@ -3543,15 +3490,9 @@ int S3fsMultiCurl::MultiRead(void)
 
 int S3fsMultiCurl::Request(void)
 {
-  int       result;
-  CURLMcode curlm_code;
+  int result;
 
   S3FS_PRN_INFO3("[count=%zu]", cMap_all.size());
-
-  if(hMulti){
-    S3FS_PRN_DBG("Warning: hMulti is not null, thus clear itself.");
-    ClearEx(false);
-  }
 
   // Make request list.
   //
@@ -3559,12 +3500,6 @@ int S3fsMultiCurl::Request(void)
   // (When many request is sends, sometimes gets "Couldn't connect to server")
   //
   while(!cMap_all.empty()){
-    // populate the multi interface with an initial set of requests
-    if(NULL == (hMulti = curl_multi_init())){
-      Clear();
-      return -1;
-    }
-
     // set curl handle to multi handle
     int                     cnt;
     s3fscurlmap_t::iterator iter;
@@ -3572,11 +3507,6 @@ int S3fsMultiCurl::Request(void)
       CURL*     hCurl    = (*iter).first;
       S3fsCurl* s3fscurl = (*iter).second;
 
-      if(CURLM_OK != (curlm_code = curl_multi_add_handle(hMulti, hCurl))){
-        S3FS_PRN_ERR("curl_multi_add_handle code: %d msg: %s", curlm_code, curl_multi_strerror(curlm_code));
-        Clear();
-        return -EIO;
-      }
       cMap_req[hCurl] = s3fscurl;
     }
 
@@ -3596,6 +3526,11 @@ int S3fsMultiCurl::Request(void)
     ClearEx(false);
   }
   return 0;
+}
+
+// thread function for performing an S3fsCurl request
+void* S3fsMultiCurl::RequestPerformWrapper(void* arg) {
+  return (void*)(intptr_t)(static_cast<S3fsCurl*>(arg)->RequestPerform());
 }
 
 //-------------------------------------------------------------------

@@ -144,7 +144,7 @@ static int readdir_multi_head(const char* path, S3ObjList& head, void* buf, fuse
 static int list_bucket(const char* path, S3ObjList& head, const char* delimiter, bool check_content_only = false);
 static int directory_empty(const char* path);
 static bool is_truncated(xmlDocPtr doc);;
-static int append_objects_from_xml_ex(const char* path, xmlDocPtr doc, xmlXPathContextPtr ctx, 
+static int append_objects_from_xml_ex(const char* path, xmlDocPtr doc, xmlXPathContextPtr ctx,
               const char* ex_contents, const char* ex_key, const char* ex_etag, int isCPrefix, S3ObjList& head);
 static int append_objects_from_xml(const char* path, xmlDocPtr doc, S3ObjList& head);
 static bool GetXmlNsUrl(xmlDocPtr doc, string& nsurl);
@@ -907,6 +907,7 @@ static int s3fs_mknod(const char *path, mode_t mode, dev_t rdev)
   if(NULL == (pcxt = fuse_get_context())){
     return -EIO;
   }
+  S3FS_PRN_INFO("%s, uid=[%d], gid=[%d], pid=[%d]", __FUNCTION__, pcxt->uid, pcxt->gid, pcxt->pid);
 
   if(0 != (result = create_file_object(path, mode, pcxt->uid, pcxt->gid))){
     S3FS_PRN_ERR("could not create object for special file(result=%d)", result);
@@ -928,6 +929,7 @@ static int s3fs_create(const char* path, mode_t mode, struct fuse_file_info* fi)
   if(NULL == (pcxt = fuse_get_context())){
     return -EIO;
   }
+  S3FS_PRN_INFO("%s, uid=[%d], gid=[%d], pid=[%d]", __FUNCTION__, pcxt->uid, pcxt->gid, pcxt->pid);
 
   // check parent directory attribute.
   if(0 != (result = check_parent_object_access(path, X_OK))){
@@ -993,6 +995,7 @@ static int s3fs_mkdir(const char* path, mode_t mode)
   if(NULL == (pcxt = fuse_get_context())){
     return -EIO;
   }
+  S3FS_PRN_INFO("%s, uid=[%d], gid=[%d], pid=[%d]", __FUNCTION__, pcxt->uid, pcxt->gid, pcxt->pid);
 
   // check parent directory attribute.
   if(0 != (result = check_parent_object_access(path, W_OK | X_OK))){
@@ -1017,6 +1020,11 @@ static int s3fs_unlink(const char* path)
   int result;
 
   S3FS_PRN_INFO("[path=%s]", path);
+
+  struct fuse_context* pcxt;
+  if(NULL != (pcxt = fuse_get_context())){
+    S3FS_PRN_INFO("%s, uid=[%d], gid=[%d], pid=[%d]", __FUNCTION__, pcxt->uid, pcxt->gid, pcxt->pid);
+  }
 
   if(0 != (result = check_parent_object_access(path, W_OK | X_OK))){
     return result;
@@ -1052,6 +1060,11 @@ static int s3fs_rmdir(const char* path)
   struct stat stbuf;
 
   S3FS_PRN_INFO("[path=%s]", path);
+
+  struct fuse_context* pcxt;
+  if(NULL != (pcxt = fuse_get_context())){
+    S3FS_PRN_INFO("%s, uid=[%d], gid=[%d], pid=[%d]", __FUNCTION__, pcxt->uid, pcxt->gid, pcxt->pid);
+  }
 
   if(0 != (result = check_parent_object_access(path, W_OK | X_OK))){
     return result;
@@ -1111,6 +1124,8 @@ static int s3fs_symlink(const char* from, const char* to)
   if(NULL == (pcxt = fuse_get_context())){
     return -EIO;
   }
+  S3FS_PRN_INFO("%s, uid=[%d], gid=[%d], pid=[%d]", __FUNCTION__, pcxt->uid, pcxt->gid, pcxt->pid);
+
   if(0 != (result = check_parent_object_access(to, W_OK | X_OK))){
     return result;
   }
@@ -1293,7 +1308,7 @@ static int rename_directory(const char* from, const char* to)
   string newpath;                       // should be from name(not used)
   string nowcache;                      // now cache path(not used)
   int DirType;
-  bool normdir; 
+  bool normdir;
   MVNODE* mn_head = NULL;
   MVNODE* mn_tail = NULL;
   MVNODE* mn_cur;
@@ -1306,7 +1321,7 @@ static int rename_directory(const char* from, const char* to)
   //
   // Initiate and Add base directory into MVNODE struct.
   //
-  strto += "/";	
+  strto += "/";
   if(0 == chk_dir_object_type(from, newpath, strfrom, nowcache, NULL, &DirType) && DIRTYPE_UNKNOWN != DirType){
     if(DIRTYPE_NOOBJ != DirType){
       normdir = false;
@@ -1328,7 +1343,7 @@ static int rename_directory(const char* from, const char* to)
   // (CommonPrefixes is empty, but all object is listed in Key.)
   if(0 != (result = list_bucket(basepath.c_str(), head, NULL))){
     S3FS_PRN_ERR("list_bucket returns error.");
-    return result; 
+    return result;
   }
   head.GetNameList(headlist);                       // get name without "/".
   S3ObjList::MakeHierarchizedList(headlist, false); // add hierarchized dir.
@@ -1362,7 +1377,7 @@ static int rename_directory(const char* from, const char* to)
       is_dir  = false;
       normdir = false;
     }
-    
+
     // push this one onto the stack
     if(NULL == add_mvnode(&mn_head, &mn_tail, from_name.c_str(), to_name.c_str(), is_dir, normdir)){
       return -ENOMEM;
@@ -1474,6 +1489,11 @@ static int s3fs_chmod(const char* path, mode_t mode)
 
   S3FS_PRN_INFO("[path=%s][mode=%04o]", path, mode);
 
+  struct fuse_context* pcxt;
+  if(NULL != (pcxt = fuse_get_context())){
+    S3FS_PRN_INFO("%s, uid=[%d], gid=[%d], pid=[%d]", __FUNCTION__, pcxt->uid, pcxt->gid, pcxt->pid);
+  }
+
   if(0 == strcmp(path, "/")){
     S3FS_PRN_ERR("Could not change mode for mount point.");
     return -EIO;
@@ -1540,6 +1560,11 @@ static int s3fs_chmod_nocopy(const char* path, mode_t mode)
 
   S3FS_PRN_INFO1("[path=%s][mode=%04o]", path, mode);
 
+  struct fuse_context* pcxt;
+  if(NULL != (pcxt = fuse_get_context())){
+    S3FS_PRN_INFO("%s, uid=[%d], gid=[%d], pid=[%d]", __FUNCTION__, pcxt->uid, pcxt->gid, pcxt->pid);
+  }
+
   if(0 == strcmp(path, "/")){
     S3FS_PRN_ERR("Could not change mode for maount point.");
     return -EIO;
@@ -1566,7 +1591,7 @@ static int s3fs_chmod_nocopy(const char* path, mode_t mode)
   if(S_ISDIR(stbuf.st_mode)){
     // Should rebuild all directory object
     // Need to remove old dir("dir" etc) and make new dir("dir/")
-    
+
     // At first, remove directory old object
     if(IS_RMTYPEDIR(nDirType)){
       S3fsCurl s3fscurl;
@@ -1619,6 +1644,11 @@ static int s3fs_chown(const char* path, uid_t uid, gid_t gid)
   int nDirType = DIRTYPE_UNKNOWN;
 
   S3FS_PRN_INFO("[path=%s][uid=%u][gid=%u]", path, (unsigned int)uid, (unsigned int)gid);
+
+  struct fuse_context* pcxt;
+  if(NULL != (pcxt = fuse_get_context())){
+    S3FS_PRN_INFO("%s, uid=[%d], gid=[%d], pid=[%d]", __FUNCTION__, pcxt->uid, pcxt->gid, pcxt->pid);
+  }
 
   if(0 == strcmp(path, "/")){
     S3FS_PRN_ERR("Could not change owner for maount point.");
@@ -1700,6 +1730,10 @@ static int s3fs_chown_nocopy(const char* path, uid_t uid, gid_t gid)
   int         nDirType = DIRTYPE_UNKNOWN;
 
   S3FS_PRN_INFO1("[path=%s][uid=%u][gid=%u]", path, (unsigned int)uid, (unsigned int)gid);
+  struct fuse_context* pcxt;
+  if(NULL != (pcxt = fuse_get_context())){
+    S3FS_PRN_INFO("%s, uid=[%d], gid=[%d], pid=[%d]", __FUNCTION__, pcxt->uid, pcxt->gid, pcxt->pid);
+  }
 
   if(0 == strcmp(path, "/")){
     S3FS_PRN_ERR("Could not change owner for maount point.");
@@ -1790,6 +1824,10 @@ static int s3fs_utimens(const char* path, const struct timespec ts[2])
   int nDirType = DIRTYPE_UNKNOWN;
 
   S3FS_PRN_INFO("[path=%s][mtime=%jd]", path, (intmax_t)(ts[1].tv_sec));
+  struct fuse_context* pcxt;
+  if(NULL != (pcxt = fuse_get_context())){
+    S3FS_PRN_INFO("%s, uid=[%d], gid=[%d], pid=[%d]", __FUNCTION__, pcxt->uid, pcxt->gid, pcxt->pid);
+  }
 
   if(0 == strcmp(path, "/")){
     S3FS_PRN_ERR("Could not change mtime for maount point.");
@@ -1857,6 +1895,10 @@ static int s3fs_utimens_nocopy(const char* path, const struct timespec ts[2])
   int         nDirType = DIRTYPE_UNKNOWN;
 
   S3FS_PRN_INFO1("[path=%s][mtime=%s]", path, str(ts[1].tv_sec).c_str());
+  struct fuse_context* pcxt;
+  if(NULL != (pcxt = fuse_get_context())){
+    S3FS_PRN_INFO("%s, uid=[%d], gid=[%d], pid=[%d]", __FUNCTION__, pcxt->uid, pcxt->gid, pcxt->pid);
+  }
 
   if(0 == strcmp(path, "/")){
     S3FS_PRN_ERR("Could not change mtime for mount point.");
@@ -1971,6 +2013,8 @@ static int s3fs_truncate(const char* path, off_t size)
     if(NULL == (pcxt = fuse_get_context())){
       return -EIO;
     }
+    S3FS_PRN_INFO("%s, uid=[%d], gid=[%d], pid=[%d]", __FUNCTION__, pcxt->uid, pcxt->gid, pcxt->pid);
+
     meta["Content-Type"]     = string("application/octet-stream"); // Static
     meta["x-cos-meta-mode"]  = str(S_IFLNK | S_IRWXU | S_IRWXG | S_IRWXO);
     meta["x-cos-meta-mtime"] = str(time(NULL));
@@ -2004,6 +2048,10 @@ static int s3fs_open(const char* path, struct fuse_file_info* fi)
   bool needs_flush = false;
 
   S3FS_PRN_INFO("[path=%s][flags=%d]", path, fi->flags);
+  struct fuse_context* pcxt;
+  if(NULL != (pcxt = fuse_get_context())){
+    S3FS_PRN_INFO("%s, uid=[%d], gid=[%d], pid=[%d]", __FUNCTION__, pcxt->uid, pcxt->gid, pcxt->pid);
+  }
 
   // clear stat for reading fresh stat.
   // (if object stat is changed, we refresh it. then s3fs gets always
@@ -2040,7 +2088,7 @@ static int s3fs_open(const char* path, struct fuse_file_info* fi)
   if(NULL == (ent = FdManager::get()->Open(path, &meta, static_cast<ssize_t>(st.st_size), st.st_mtime, false, true))){
     return -EIO;
   }
-  
+
   if (needs_flush){
     if(0 != (result = ent->RowFlush(path, true))){
       S3FS_PRN_ERR("could not upload file(%s): result=%d", path, result);
@@ -2060,6 +2108,10 @@ static int s3fs_read(const char* path, char* buf, size_t size, off_t offset, str
   ssize_t res;
 
   S3FS_PRN_DBG("[path=%s][size=%zu][offset=%jd][fd=%llu]", path, size, (intmax_t)offset, (unsigned long long)(fi->fh));
+  struct fuse_context* pcxt;
+  if(NULL != (pcxt = fuse_get_context())){
+    S3FS_PRN_INFO("%s, uid=[%d], gid=[%d], pid=[%d]", __FUNCTION__, pcxt->uid, pcxt->gid, pcxt->pid);
+  }
 
   FdEntity* ent;
   if(NULL == (ent = FdManager::get()->ExistOpen(path, static_cast<int>(fi->fh)))){
@@ -2091,6 +2143,10 @@ static int s3fs_write(const char* path, const char* buf, size_t size, off_t offs
   ssize_t res;
 
   S3FS_PRN_DBG("[path=%s][size=%zu][offset=%jd][fd=%llu]", path, size, (intmax_t)offset, (unsigned long long)(fi->fh));
+  struct fuse_context* pcxt;
+  if(NULL != (pcxt = fuse_get_context())){
+    S3FS_PRN_INFO("%s, uid=[%d], gid=[%d], pid=[%d]", __FUNCTION__, pcxt->uid, pcxt->gid, pcxt->pid);
+  }
 
   FdEntity* ent;
   if(NULL == (ent = FdManager::get()->ExistOpen(path, static_cast<int>(fi->fh)))){
@@ -2124,6 +2180,10 @@ static int s3fs_flush(const char* path, struct fuse_file_info* fi)
   int result;
 
   S3FS_PRN_INFO("[path=%s][fd=%llu]", path, (unsigned long long)(fi->fh));
+  struct fuse_context* pcxt;
+  if(NULL != (pcxt = fuse_get_context())){
+    S3FS_PRN_INFO("%s, uid=[%d], gid=[%d], pid=[%d]", __FUNCTION__, pcxt->uid, pcxt->gid, pcxt->pid);
+  }
 
   int mask = (O_RDONLY != (fi->flags & O_ACCMODE) ? W_OK : R_OK);
   if(0 != (result = check_parent_object_access(path, X_OK))){
@@ -2157,6 +2217,10 @@ static int s3fs_fsync(const char* path, int datasync, struct fuse_file_info* fi)
   int result = 0;
 
   S3FS_PRN_INFO("[path=%s][fd=%llu]", path, (unsigned long long)(fi->fh));
+  struct fuse_context* pcxt;
+  if(NULL != (pcxt = fuse_get_context())){
+    S3FS_PRN_INFO("%s, uid=[%d], gid=[%d], pid=[%d]", __FUNCTION__, pcxt->uid, pcxt->gid, pcxt->pid);
+  }
 
   FdEntity* ent;
   if(NULL != (ent = FdManager::get()->ExistOpen(path, static_cast<int>(fi->fh)))){
@@ -2178,6 +2242,10 @@ static int s3fs_release(const char* path, struct fuse_file_info* fi)
 {
   S3FS_PRN_INFO("[path=%s][fd=%llu]", path, (unsigned long long)(fi->fh));
 
+  struct fuse_context* pcxt;
+  if(NULL != (pcxt = fuse_get_context())){
+    S3FS_PRN_INFO("%s, uid=[%d], gid=[%d], pid=[%d]", __FUNCTION__, pcxt->uid, pcxt->gid, pcxt->pid);
+  }
   // [NOTICE]
   // At first, we remove stats cache.
   // Because fuse does not wait for response from "release" function. :-(
@@ -2211,6 +2279,11 @@ static int s3fs_release(const char* path, struct fuse_file_info* fi)
 
 static int s3fs_opendir(const char* path, struct fuse_file_info* fi)
 {
+  struct fuse_context* pcxt;
+  if(NULL != (pcxt = fuse_get_context())){
+    S3FS_PRN_INFO("%s, uid=[%d], gid=[%d], pid=[%d]", __FUNCTION__, pcxt->uid, pcxt->gid, pcxt->pid);
+  }
+
   int result;
   int mask = (O_RDONLY != (fi->flags & O_ACCMODE) ? W_OK : R_OK) | X_OK;
 
@@ -2366,6 +2439,10 @@ static int s3fs_readdir(const char* path, void* buf, fuse_fill_dir_t filler, off
   int result;
 
   S3FS_PRN_INFO("[path=%s]", path);
+  struct fuse_context* pcxt;
+  if(NULL != (pcxt = fuse_get_context())){
+    S3FS_PRN_INFO("%s, uid=[%d], gid=[%d], pid=[%d]", __FUNCTION__, pcxt->uid, pcxt->gid, pcxt->pid);
+  }
 
   if(0 != (result = check_object_access(path, X_OK, NULL))){
     return result;
@@ -2399,7 +2476,7 @@ static int s3fs_readdir(const char* path, void* buf, fuse_fill_dir_t filler, off
 
 static int list_bucket(const char* path, S3ObjList& head, const char* delimiter, bool check_content_only)
 {
-  int       result; 
+  int       result;
   string    s3_realpath;
   string    query_delimiter;;
   string    query_prefix;;
@@ -2427,7 +2504,7 @@ static int list_bucket(const char* path, S3ObjList& head, const char* delimiter,
     query_prefix += urlEncode(s3_realpath.substr(1));
   }
   if (check_content_only){
-    query_maxkey += "max-keys=1";
+    query_maxkey += "max-keys=2";
   }else{
     query_maxkey += "max-keys=1000";
   }
@@ -2495,7 +2572,7 @@ static int list_bucket(const char* path, S3ObjList& head, const char* delimiter,
 
 const char* c_strErrorObjectName = "FILE or SUBDIR in DIR";
 
-static int append_objects_from_xml_ex(const char* path, xmlDocPtr doc, xmlXPathContextPtr ctx, 
+static int append_objects_from_xml_ex(const char* path, xmlDocPtr doc, xmlXPathContextPtr ctx,
        const char* ex_contents, const char* ex_key, const char* ex_etag, int isCPrefix, S3ObjList& head)
 {
   xmlXPathObjectPtr contents_xp;
@@ -3129,6 +3206,10 @@ static int s3fs_getxattr(const char* path, const char* name, char* value, size_t
 static int s3fs_listxattr(const char* path, char* list, size_t size)
 {
   S3FS_PRN_INFO("[path=%s][list=%p][size=%zu]", path, list, size);
+  struct fuse_context* pcxt;
+  if(NULL != (pcxt = fuse_get_context())){
+    S3FS_PRN_INFO("%s, uid=[%d], gid=[%d], pid=[%d]", __FUNCTION__, pcxt->uid, pcxt->gid, pcxt->pid);
+  }
 
   if(!path){
     return -EIO;
@@ -3197,6 +3278,10 @@ static int s3fs_listxattr(const char* path, char* list, size_t size)
 static int s3fs_removexattr(const char* path, const char* name)
 {
   S3FS_PRN_INFO("[path=%s][name=%s]", path, name);
+  struct fuse_context* pcxt;
+  if(NULL != (pcxt = fuse_get_context())){
+    S3FS_PRN_INFO("%s, uid=[%d], gid=[%d], pid=[%d]", __FUNCTION__, pcxt->uid, pcxt->gid, pcxt->pid);
+  }
 
   if(!path || !name){
     return -EIO;
@@ -3303,7 +3388,7 @@ static int s3fs_removexattr(const char* path, const char* name)
 
   return 0;
 }
-   
+
 static void* s3fs_init(struct fuse_conn_info* conn)
 {
   // check bucket
@@ -3342,6 +3427,11 @@ static void s3fs_destroy(void*)
 
 static int s3fs_access(const char* path, int mask)
 {
+  struct fuse_context* pcxt;
+  if(NULL != (pcxt = fuse_get_context())){
+    S3FS_PRN_INFO("%s, uid=[%d], gid=[%d], pid=[%d]", __FUNCTION__, pcxt->uid, pcxt->gid, pcxt->pid);
+  }
+
   S3FS_PRN_INFO("[path=%s][mask=%s%s%s%s]", path,
           ((mask & R_OK) == R_OK) ? "R_OK " : "",
           ((mask & W_OK) == W_OK) ? "W_OK " : "",
@@ -3604,7 +3694,7 @@ static int s3fs_utility_mode(void)
 
 //
 // If calling with wrong region, s3fs gets following error body as 400 erro code.
-// "<Error><Code>AuthorizationHeaderMalformed</Code><Message>The authorization header is 
+// "<Error><Code>AuthorizationHeaderMalformed</Code><Message>The authorization header is
 //  malformed; the region 'us-east-1' is wrong; expecting 'ap-northeast-1'</Message>
 //  <Region>ap-northeast-1</Region><RequestId>...</RequestId><HostId>...</HostId>
 //  </Error>"
@@ -3775,7 +3865,7 @@ int check_for_cos_format(void)
          got_token_line = 1;
          continue;
       }
-      
+
      found = line.find(str4);
       if(found != string::npos){
          first_pos = line.find_first_of("=");
@@ -3804,7 +3894,7 @@ int check_for_cos_format(void)
 
 //
 // check_passwd_file_perms
-// 
+//
 // expect that global passwd_file variable contains
 // a non-empty value and is readable by the current user
 //
@@ -3823,19 +3913,19 @@ static int check_passwd_file_perms(void)
     return EXIT_FAILURE;
   }
 
-  // return error if any file has others permissions 
+  // return error if any file has others permissions
   if( (info.st_mode & S_IROTH) ||
-      (info.st_mode & S_IWOTH) || 
+      (info.st_mode & S_IWOTH) ||
       (info.st_mode & S_IXOTH)) {
     S3FS_PRN_EXIT("credentials file %s should not have others permissions.", passwd_file.c_str());
     return EXIT_FAILURE;
   }
 
-  // Any local file should not have any group permissions 
-  // /etc/passwd-cosfs can have group permissions 
+  // Any local file should not have any group permissions
+  // /etc/passwd-cosfs can have group permissions
   if(passwd_file != "/etc/passwd-cosfs"){
     if( (info.st_mode & S_IRGRP) ||
-        (info.st_mode & S_IWGRP) || 
+        (info.st_mode & S_IWGRP) ||
         (info.st_mode & S_IXGRP)) {
       S3FS_PRN_EXIT("credentials file %s should not have group permissions.", passwd_file.c_str());
       return EXIT_FAILURE;
@@ -3858,10 +3948,10 @@ static int check_passwd_file_perms(void)
 // read_passwd_file
 //
 // Support for per bucket credentials
-// 
+//
 // Format for the credentials file:
 // [bucket:]AccessKeyId:SecretAccessKey
-// 
+//
 // Lines beginning with # are considered comments
 // and ignored, as are empty lines
 //
@@ -3951,13 +4041,16 @@ static int read_passwd_file(void)
       // does the bucket we are mounting match this passwd file entry?
       // if so, use that key pair, otherwise use the default key, if found,
       // will be used
-      if(field1.size() != 0 && field1 == bucket){
-        if(!S3fsCurl::SetAccessKey(field2.c_str(), field3.c_str())){
-          S3FS_PRN_EXIT("if one access key is specified, both keys need to be specified.");
-          return EXIT_FAILURE;
-        }
-        break;
-      }
+	  if (!field1.empty()) {
+		// Compatible with old bucket name
+		if (field1 == bucket || field1 == bucket + "-" + appid) {
+          if(!S3fsCurl::SetAccessKey(field2.c_str(), field3.c_str())){
+            S3FS_PRN_EXIT("if one access key is specified, both keys need to be specified.");
+            return EXIT_FAILURE;
+          }
+          break;
+		}
+	  }
     }
   }
   return EXIT_SUCCESS;
@@ -3966,7 +4059,7 @@ static int read_passwd_file(void)
 //
 // get_access_keys
 //
-// called only when were are not mounting a 
+// called only when were are not mounting a
 // public bucket
 //
 // Here is the order precedence for getting the
@@ -4057,7 +4150,7 @@ static int get_access_keys(void)
    }
 
   // 5 - from the system default location
-  passwd_file.assign("/etc/passwd-cosfs"); 
+  passwd_file.assign("/etc/passwd-cosfs");
   ifstream PF(passwd_file.c_str());
   if(PF.good()){
     PF.close();
@@ -4097,91 +4190,119 @@ static int set_moutpoint_attribute(struct stat& mpst)
   return false;
 }
 
+void SplitString(const std::string& str, char delim, std::vector<std::string>* vec) {
+    std::stringstream ss(str);
+    std::string item;
+	while(std::getline(ss, item, delim)) {
+		if(!item.empty()) {
+			vec->push_back(item);
+		}
+	}
+}
+
 // This is repeatedly called by the fuse option parser
-// if the key is equal to FUSE_OPT_KEY_OPT, it's an option passed in prefixed by 
+// if the key is equal to FUSE_OPT_KEY_OPT, it's an option passed in prefixed by
 // '-' or '--' e.g.: -f -d -ousecache=/tmp
 //
-// if the key is equal to FUSE_OPT_KEY_NONOPT, it's either the bucket name 
+// if the key is equal to FUSE_OPT_KEY_NONOPT, it's either the bucket name
 //  or the mountpoint. The bucket name will always come before the mountpoint
 static int my_fuse_opt_proc(void* data, const char* arg, int key, struct fuse_args* outargs)
 {
-  if(key == FUSE_OPT_KEY_NONOPT){
-    // the first NONOPT option is the bucket name
-    if(bucket.size() == 0){
-      // extract remote mount path
-      char *bucket_name = (char*)arg;
-      if(strstr(arg, ":")){
-	  appid = strtok(bucket_name, ":");
-	  char* bucket_arg = strtok(NULL, ":");
-	  if (!bucket_arg) {
-             S3FS_PRN_EXIT("Bucket is not specified");
-	     return -1;
+  if(key == FUSE_OPT_KEY_NONOPT) {
+	  // the first NONOPT option is the bucket name
+	  if (bucket.empty()) {
+		  std::vector<std::string> split_vec;
+		  std::string nonopt(arg);
+		  SplitString(nonopt, ':', &split_vec);
+		  if (split_vec.size() == 1) {
+			  std::string bucket_appid = split_vec[0];
+			  size_t found = bucket_appid.find_last_of("-");
+			  if (found == std::string::npos || found >= bucket_appid.size()) {
+				  S3FS_PRN_EXIT("Check your input bucket name, it looks like chars-1234567.");
+				  return -1;
+			  }
+
+			  bucket = bucket_appid.substr(0, found);
+			  appid = bucket_appid.substr(found + 1);
+		  } else if (split_vec.size() == 2) {
+			  if (!split_vec[1].empty() && split_vec[1].at(0) == '/') {
+				  std::string bucket_appid = split_vec[0];
+				  size_t found = bucket_appid.find_last_of("-");
+				  if (found == std::string::npos || found >= bucket_appid.size()) {
+					  S3FS_PRN_EXIT("Check your input bucket name, it looks like chars-1234567.");
+					  return -1;
+				  }
+
+				  bucket = bucket_appid.substr(0, found);
+				  appid = bucket_appid.substr(found + 1);
+				  mount_prefix = split_vec[1];
+			  } else {
+				  appid = split_vec[0];
+				  bucket = split_vec[1];
+			  }
+		  } else if (split_vec.size() >= 3) {
+			  appid = split_vec[0];
+			  bucket = split_vec[1];
+			  mount_prefix = split_vec[2];
+		  }
+		  // remove trailing slash
+		  if(!mount_prefix.empty() && mount_prefix.at(mount_prefix.size() - 1) == '/'){
+			  mount_prefix = mount_prefix.substr(0, mount_prefix.size() - 1);
+		  }
+
+		  if (appid.empty() || bucket.empty()) {
+			  S3FS_PRN_EXIT("Check your input bucket name, it looks like chars-1234567.");
+			  return -1;
+		  }
+		  S3FS_PRN_ERR("appid=%s, bucket=%s", appid.c_str(), bucket.c_str());
+		  return 0;
 	  }
-          bucket = bucket_arg;
-          char* pmount_prefix = strtok(NULL, ":");
-          if(pmount_prefix){
-            if(0 == strlen(pmount_prefix) || '/' != pmount_prefix[0]){
-              S3FS_PRN_EXIT("path(%s) must be prefix \"/\".", pmount_prefix);
-              return -1;
-            }
-            mount_prefix = pmount_prefix;
-            // remove trailing slash
-            if(mount_prefix.at(mount_prefix.size() - 1) == '/'){
-              mount_prefix = mount_prefix.substr(0, mount_prefix.size() - 1);
-            }
-          }
-      } else{
-        S3FS_PRN_EXIT("Bucket is not specified");
-	    return -1;
+
+	  // the second NONPOT option is the mountpoint(not utility mode)
+	  if(0 == mountpoint.size() && 0 == utility_mode){
+		  // save the mountpoint and do some basic error checking
+		  mountpoint = arg;
+		  struct stat stbuf;
+
+		  if(stat(arg, &stbuf) == -1){
+			  S3FS_PRN_EXIT("unable to access MOUNTPOINT %s: %s", mountpoint.c_str(), strerror(errno));
+			  return -1;
+		  }
+		  if(!(S_ISDIR(stbuf.st_mode))){
+			  S3FS_PRN_EXIT("MOUNTPOINT: %s is not a directory.", mountpoint.c_str());
+			  return -1;
+		  }
+		  if(!set_moutpoint_attribute(stbuf)){
+			  S3FS_PRN_EXIT("MOUNTPOINT: %s permission denied.", mountpoint.c_str());
+			  return -1;
+		  }
+
+		  if(!nonempty){
+			  struct dirent *ent;
+			  DIR *dp = opendir(mountpoint.c_str());
+			  if(dp == NULL){
+				  S3FS_PRN_EXIT("failed to open MOUNTPOINT: %s: %s", mountpoint.c_str(), strerror(errno));
+				  return -1;
+			  }
+			  while((ent = readdir(dp)) != NULL){
+				  if(strcmp(ent->d_name, ".") != 0 && strcmp(ent->d_name, "..") != 0){
+					  closedir(dp);
+					  S3FS_PRN_EXIT("MOUNTPOINT directory %s is not empty. if you are sure this is safe, can use the 'nonempty' mount option.", mountpoint.c_str());
+					  return -1;
+				  }
+			  }
+			  closedir(dp);
+		  }
+		  return 1;
 	  }
-      return 0;
-    }
 
-    // the second NONPOT option is the mountpoint(not utility mode)
-    if(0 == mountpoint.size() && 0 == utility_mode){
-      // save the mountpoint and do some basic error checking
-      mountpoint = arg;
-      struct stat stbuf;
-
-      if(stat(arg, &stbuf) == -1){
-        S3FS_PRN_EXIT("unable to access MOUNTPOINT %s: %s", mountpoint.c_str(), strerror(errno));
-        return -1;
-      }
-      if(!(S_ISDIR(stbuf.st_mode))){
-        S3FS_PRN_EXIT("MOUNTPOINT: %s is not a directory.", mountpoint.c_str());
-        return -1;
-      }
-      if(!set_moutpoint_attribute(stbuf)){
-        S3FS_PRN_EXIT("MOUNTPOINT: %s permission denied.", mountpoint.c_str());
-        return -1;
-      }
-
-      if(!nonempty){
-        struct dirent *ent;
-        DIR *dp = opendir(mountpoint.c_str());
-        if(dp == NULL){
-          S3FS_PRN_EXIT("failed to open MOUNTPOINT: %s: %s", mountpoint.c_str(), strerror(errno));
-          return -1;
-        }
-        while((ent = readdir(dp)) != NULL){
-          if(strcmp(ent->d_name, ".") != 0 && strcmp(ent->d_name, "..") != 0){
-            closedir(dp);
-            S3FS_PRN_EXIT("MOUNTPOINT directory %s is not empty. if you are sure this is safe, can use the 'nonempty' mount option.", mountpoint.c_str());
-            return -1;
-          }
-        }
-        closedir(dp);
-      }
-      return 1;
-    }
-
-    // Unknow option
-    if(0 == utility_mode){
-      S3FS_PRN_EXIT("specified unknown third optioni(%s).", arg);
-    }else{
-      S3FS_PRN_EXIT("specified unknown second optioni(%s). you don't need to specify second option(mountpoint) for utility mode(-u).", arg);
-    }
-    return -1;
+	  // Unknow option
+	  if(0 == utility_mode){
+		  S3FS_PRN_EXIT("specified unknown third optioni(%s).", arg);
+	  }else{
+		  S3FS_PRN_EXIT("specified unknown second optioni(%s). you don't need to specify second option(mountpoint) for utility mode(-u).", arg);
+	  }
+	  return -1;
 
   }else if(key == FUSE_OPT_KEY_OPT){
     if(0 == STR2NCMP(arg, "uid=")){
@@ -4509,6 +4630,7 @@ static int my_fuse_opt_proc(void* data, const char* arg, int key, struct fuse_ar
       AdditionalHeader::get()->Dump();
       return 0;
     }
+
     if(0 == strcmp(arg, "noxmlns")){
       noxmlns = true;
       return 0;
@@ -4615,13 +4737,19 @@ static int my_fuse_opt_proc(void* data, const char* arg, int key, struct fuse_ar
       S3FS_PRN_EXIT("option secretAccessKey is no longer supported.");
       return -1;
     }
+
+    // noxmlns defalut is true
+    if(0 == strcmp(arg, "xmlns")) {
+        noxmlns = false;
+        return 0;
+    }
   }
   return 1;
 }
 
 // s3fs_init calls this function to exit cleanly from the fuse event loop.
 // //
-// // There's no way to pass an exit status to the high-level event loop API, so 
+// // There's no way to pass an exit status to the high-level event loop API, so
 // // this function stores the exit value in a global for main()
 static void s3fs_exit_fuseloop(int exit_status) {
     S3FS_PRN_ERR("Exiting FUSE event loop due to errors\n");
@@ -4636,7 +4764,7 @@ int main(int argc, char* argv[])
 {
   int ch;
   int fuse_res;
-  int option_index = 0; 
+  int option_index = 0;
   struct fuse_operations s3fs_oper;
 
   static const struct option long_opts[] = {
@@ -4657,7 +4785,7 @@ int main(int argc, char* argv[])
   xmlInitParser();
   LIBXML_TEST_VERSION
 
-  // get progam name - emulate basename 
+  // get progam name - emulate basename
   size_t found = string::npos;
   program_name.assign(argv[0]);
   found = program_name.find_last_of("/");
@@ -4763,7 +4891,7 @@ int main(int argc, char* argv[])
       exit(EXIT_FAILURE);
     }
     // More error checking on the access key pair can be done
-    // like checking for appropriate lengths and characters  
+    // like checking for appropriate lengths and characters
   }
 
   // check cache dir permission
@@ -4780,11 +4908,11 @@ int main(int argc, char* argv[])
   // our own certificate verification logic.
   // For now, this will be unsupported unless we get a request for it to
   // be supported. In that case, we have a couple of options:
-  // - implement a command line option that bypasses the verify host 
+  // - implement a command line option that bypasses the verify host
   //   but doesn't bypass verifying the certificate
   // - write our own host verification (this might be complex)
   // See issue #128strncasecmp
-  /* 
+  /*
   if(1 == S3fsCurl::GetSslVerifyHostname()){
     found = bucket.find_first_of(".");
     if(found != string::npos){
@@ -4869,7 +4997,7 @@ int main(int argc, char* argv[])
     S3FS_PRN_EXIT("could not set signal handler for SIGUSR2.");
     exit(EXIT_FAILURE);
   }
-     
+
   int result;
   if (EXIT_SUCCESS != (result = s3fs_check_service())) {
        S3FS_PRN_EXIT("bucket not exist, exiting...");
