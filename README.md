@@ -75,26 +75,38 @@ sudo make install
 注意这个文件的权限必须正确设置，建议设为640。
 
 ```
-echo my-bucket:my-access-key-id:my-access-key-secret > /etc/passwd-cosfs #my-bucket的格式类似bucketprefix-123456789
+echo bucket_name:my-access-key-id:my-access-key-secret > /etc/passwd-cosfs # bucket_name的格式类似bucketprefix-123456789
 chmod 640 /etc/passwd-cosfs
 ```
 
 将cos bucket mount到指定目录
 ```
-cosfs my-bucket my-mount-point -ourl=my-cos-endpoint
+cosfs bucket_name my-mount-point -ourl=my-cos-endpoint
 ```
+
+注意：
+
+v1.0.5 版本之前的cosfs挂载命令：
+``
+cosfs bucketname_suffix:bucketname_prefix my-mount-point -ourl=my-cos-endpoint
+``
+
+v1.0.5 版本之前的配置文件格式是：
+``
+bucketname_prefix:<SecretId>:<SecretKey>
+``
+其中`bucketname_suffix`指的是bucket名称中的数字后缀, `bucketname_prefix`指的是除数字后缀外的其他部分。
+例如 bucketprefix-1253972369 的`bucketname_suffix` 为1253972369， `bucketname_prefix`为bucketprefix。
+
 #### 示例
 
 将`my-bucket`这个bucket挂载到`/tmp/cosfs`目录下，AccessKeyId是`faint`，
-AccessKeySecret是`123`，cos endpoint是`http://cn-south.myqcloud.com`
-cn-south 对应华南广州地域
-cn-north 对应华北天津地域
-cn-east 对应华东上海地域
+AccessKeySecret是`123`，cos endpoint是`http://cos.ap-guangzhou.myqcloud.com`
 ```
 echo my-bucket:faint:123 > /etc/passwd-cosfs
 chmod 640 /etc/passwd-cosfs
 mkdir /tmp/cosfs
-cosfs my-bucket /tmp/cosfs -ourl=http://cn-south.myqcloud.com -odbglevel=info -ouse_cache=/path/to/local_cache
+cosfs my-bucket /tmp/cosfs -ourl=http://cos.ap-guangzhou.myqcloud.com -odbglevel=info -ouse_cache=/path/to/local_cache
 ```
 -ouse_cache 指定了使用本地cache来缓存临时文件，进一步提高性能，如果不需要本地cache或者本地磁盘容量有限，可不指定该选项
 
@@ -109,7 +121,7 @@ fusermount -u /tmp/cosfs # non-root user
 
 ```
 参考挂载示例
-./cosfs rabbitliu-1252448703 /mnt/rabbit/ -ourl=http://cn-south.myqcloud.com -odbglevel=info -oallow_other -ocam_role=sts -opasswd_file=/tmp/passwd-jimmy-sts
+./cosfs rabbitliu-1252448703 /mnt/rabbit/ -ourl=http://cos.ap-guangzhou.myqcloud.com -odbglevel=info -oallow_other -ocam_role=sts -opasswd_file=/tmp/passwd-jimmy-sts
 
 其中 -ocam_role=sts 是必须的参数
 
@@ -153,8 +165,11 @@ Licensed under the GNU GPL version 2
 * 如何挂载目录
    在挂载命令的时候，可以指定目录，如
 
-   cosfs my-bucket:/my-dir /tmp/cosfs -ourl=http://cn-south.myqcloud.com -odbglevel=info -ouse_cache=/path/to/local_cache
-   注意，my-dir必须以/开头
+   cosfs my-bucket:/my-dir /tmp/cosfs -ourl=http://cos.ap-guangzhou.myqcloud.com -odbglevel=info -ouse_cache=/path/to/local_cache
+   注意，my-dir必须以/开头.
+
+   v1.0.5 版本之前的挂载命令：
+   `cosfs my-bucket-name-suffix:my-bucket-name-prefix:/my-dir /tmp/cosfs -ourl=http://cn-south.myqcloud.com -odbglevel=info -ouse_cache=/path/to/local_cache`
   
 
 * 为什么之前可用写文件，突然不能写了？
@@ -199,3 +214,6 @@ Licensed under the GNU GPL version 2
   对于ubuntu可以通过sudo apt-get install mime-support来添加
   对于centos可以通过sudo yum install mailcap来添加
   或者手动添加，每种格式一行，例如：image/png png
+
+* 使用cosfs挂载s3的存储桶，为什么ls列不出文件?
+  挂载时指定参数`-oxmlns`。
